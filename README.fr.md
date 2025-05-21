@@ -1,6 +1,6 @@
 # **Synchro Qt Made**
 
-[Français](http://docs.google.com/README.fr.md) | [English](http://docs.google.com/README.md)
+[Français](https://github.com/Patrick-81/Synchro-Qt-Made/blob/master/README.fr.md) | [English](http://docs.google.com/README.md)
 
 ## **Application de Sauvegarde et Synchronisation de Répertoires**
 
