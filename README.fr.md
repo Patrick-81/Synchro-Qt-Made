@@ -105,6 +105,7 @@ Le backend doit être lancé en premier et rester actif.
    cd Synchro-Qt-Made/Synchro\_backend  
    source ../.venv\_backend/bin/activate \# ou .venv\_backend\\Scripts\\activate sur Windows
 
+
 3. Lancez le backend :  
    python3 api.py
 
