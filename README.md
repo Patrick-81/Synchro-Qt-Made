@@ -1,6 +1,6 @@
 # **Synchro Qt Made**
 
-[Français](https://github.com/Patrick-81/Synchro-Qt-Made/master/README.fr.md) | [English](https://github.com/Patrick-81/Synchro-Qt-Made/master/README.md)
+[Français](https://github.com/Patrick-81/Synchro-Qt-Made/blob/master/README.fr.md) | [English](https://github.com/Patrick-81/Synchro-Qt-Made/blob/master/README.md)
 
 ## **Directory Backup and Synchronization Application**
 
