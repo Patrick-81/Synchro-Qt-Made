@@ -1,0 +1,143 @@
+{
+  "stylesheet_base": {
+    "QMainWindow": {
+      "background-color": "#2a2a2a",
+      "color": "#e0e0e0"
+    },
+    "QLabel": {
+      "color": "#e0e0e0",
+      "font-size": "16px"
+    },
+    "QLineEdit": {
+      "background-color": "#3a3a3a",
+      "color": "#f0f0f0",
+      "border": "1px solid #555555",
+      "padding": "6px",
+      "border-radius": "4px",
+      "font-size": "16px"
+    },
+    "QPushButton": {
+      "background-color": "#4a4a4a",
+      "color": "white",
+      "border": "none",
+      "padding": "10px 15px",
+      "border-radius": "5px",
+      "font-size": "16px"
+    },
+    "QPushButton:hover": {
+      "background-color": "#5a5a5a"
+    },
+    "QTextBrowser": {
+      "background-color": "#3a3a3a",
+      "color": "#f0f0f0",
+      "border": "1px solid #555555",
+      "padding": "5px",
+      "font-family": "Consolas, 'Courier New', monospace",
+      "font-size": "12px"
+    },
+    "QProgressBar": {
+      "border": "2px solid #555555",
+      "border-radius": "7px",
+      "text-align": "center",
+      "color": "#000000",
+      "background-color": "#4a4a4a",
+      "font-size": "16px"
+    },
+    "QProgressBar::chunk": {
+      "background-color": "#28a745",
+      "border-radius": "5px"
+    },
+    "QSlider::groove:horizontal": {
+      "border": "1px solid #555555",
+      "height": "8px",
+      "background": "#3a3a3a",
+      "margin": "2px 0",
+      "border-radius": "4px"
+    },
+    "QSlider::handle:horizontal": {
+      "background": "#6a5acd",
+      "border": "1px solid #555555",
+      "width": "16px",
+      "margin": "-4px 0",
+      "border-radius": "8px"
+    },
+    "QSlider::sub-page:horizontal": {
+      "background": "#6a5acd",
+      "border-radius": "4px"
+    },
+    "QFrame#separatorLine": {
+      "background-color": "#555555",
+      "height": "2px",
+      "margin": "10px 0"
+    },
+    
+    
+    "QDialog": {
+      "background-color": "#3a3a3a",
+      "color": "#e0e0e0" 
+    },
+    "QDialog QLabel": {
+      "color": "#e0e0e0" 
+    },
+    "QDialog QPushButton": {
+      "background-color": "#4a69bd", 
+      "color": "white"
+    },
+    "QDialog QPushButton:hover": {
+      "background-color": "#5a7ad6"
+    },
+    "QMessageBox": {
+      "background-color": "#3a3a3a", 
+      "color": "#e0e0e0" 
+    },
+    "QMessageBox QLabel": {
+      "color": "#e0e0e0" 
+    },
+    "QMessageBox QPushButton": {
+      "background-color": "#4a69bd",
+      "color": "white"
+    },
+    "QMessageBox QPushButton:hover": {
+      "background-color": "#5a7ad6"
+    }
+  },
+  "stylesheet_specific_buttons": {
+    "QPushButton#darkBlueButton": {
+      "background-color": "#4a69bd"
+    },
+    "QPushButton#darkBlueButton:hover": {
+      "background-color": "#5a7ad6"
+    },
+    "QPushButton#startButtonGreen": {
+      "background-color": "#28a745"
+    },
+    "QPushButton#startButtonGreen:hover": {
+      "background-color": "#218838"
+    },
+    "QPushButton#startButtonRed": {
+      "background-color": "#dc3545"
+    },
+    "QPushButton#startButtonRed:hover": {
+      "background-color": "#c82333"
+    },
+    "QPushButton#stopButton": {
+      "background-color": "#dc3545"
+    },
+    "QPushButton#stopButton:hover": {
+      "background-color": "#c82333"
+    }
+  },
+  "main_title_style": {
+    "font-size": "30px",
+    "font-weight": "bold",
+    "margin-bottom": "15px",
+    "color": "#e0e0e0"
+  },
+  "destination_path_style": {
+    "font-size": "16px",
+    "font-weight": "bold",
+    "color": "#add8e6",
+    "margin-top": "5px",
+    "margin-bottom": "15px"
+  }
+}

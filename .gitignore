@@ -1,0 +1,20 @@
+# Environnements virtuels Python
+.venv/
+venv/
+env/
+.venv_synchro_clean/
+*.pyc
+__pycache__/
+
+# Fichiers de log de l'application
+.synchro/
+*.log
+logs/
+Trash/
+
+# Fichiers de configuration spécifiques à l'utilisateur ou à l'environnement
+*.json # Si vous avez des fichiers JSON qui ne doivent pas être publics (ex: volume_config.json)
+       # Si vos configs sont génériques et peuvent être partagées, ne mettez pas *.json
+       # ou soyez plus spécifique comme:
+       # .synchro/volume_config.json
+       # .synchro/configs/*.json # Si vous ne voulez pas partager les configs sauvegardées
