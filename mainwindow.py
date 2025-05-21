@@ -2,10 +2,34 @@
 #
 # Historique des versions:
 #
+# Version 3.37 (2025-05-21):
+#   - Correction de l'AttributeError: 'NoneType' object has no attribute 'setText' dans `update_ui_texts`.
+#     L'appel à `self.language_combo.setCurrentIndex()` a été retiré de l'initialisation pour éviter
+#     un déclenchement prématuré de `update_ui_texts`.
+#     Un appel explicite à `self.update_ui_texts()` a été ajouté à la toute fin de `__init__`,
+#     garantissant que tous les éléments UI sont initialisés avant la mise à jour des textes.
+#   - Mise à jour du commentaire de versionnage.
+#
+# Version 3.36 (2025-05-21):
+#   - Correction critique de l'AttributeError: 'MainWindow' object has no attribute 'max_cached_versions_input'.
+#     L'initialisation de `self.max_cached_versions_input` a été déplacée plus tôt dans la méthode `__init__`,
+#     avant l'appel à `self.load_external_volume_base_path()`, résolvant ainsi l'erreur d'attribut manquant.
+#   - Mise à jour du commentaire de versionnage.
+#
+# Version 3.35 (2025-05-21):
+#   - Internationalisation (i18n) du Frontend :
+#     - Ajout d'un fichier `texts.json` pour stocker les traductions en français et en anglais.
+#     - La classe `MainWindow` charge les textes depuis `texts.json` au démarrage.
+#     - Ajout d'un `QComboBox` pour permettre à l'utilisateur de sélectionner la langue (Français/Anglais).
+#     - Tous les labels, textes de boutons et messages de log sont mis à jour dynamiquement
+#       en fonction de la langue sélectionnée.
+#     - La méthode `log_message` utilise désormais les préfixes et messages traduits.
+#   - Mise à jour du commentaire de versionnage.
+#
 # Version 3.34 (2025-05-21):
 #   - Correction de l'ordre d'initialisation : L'initialisation de `self.max_cached_versions_input`
 #     et de `self._max_cached_versions` a été déplacée plus tôt dans la méthode `__init__`,
-#     avant l'appel à `self.load_external_volume_base_path()`, résolvant ainsi l'AttributeError.
+#     résolvant ainsi l'AttributeError.
 #   - Mise à jour du commentaire de versionnage.
 #
 # Version 3.33 (2025-05-21):
@@ -233,13 +257,14 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSlider, QTextBrowser, QFileDialog, QSizePolicy, QFrame,
-    QMessageBox, QGridLayout, QFormLayout, QProgressBar
+    QMessageBox, QGridLayout, QFormLayout, QProgressBar, QComboBox
 )
 from PyQt5.QtCore import Qt, QUrl, QTimer
 from PyQt5.QtGui import QDesktopServices, QIntValidator
 import json
 from pathlib import Path
 import os
+import datetime # Importation pour le nettoyage des logs
 
 # Importez votre nouvelle classe ApiClient
 from api_client import ApiClient
@@ -252,7 +277,7 @@ APP_LOG_FILE = LOGS_DIR / "app.log"
 VOLUME_CONFIG_FILE = APP_DIR / "volume_config.json"
 GUI_CONFIG_FILE = Path(__file__).parent / "gui_config.json"
 TASK_LOG_DIR = LOGS_DIR / "tasks"
-
+TEXTS_FILE = Path(__file__).parent / "texts.json" # Chemin vers le fichier de textes
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -268,11 +293,27 @@ class MainWindow(QMainWindow):
         self.log_output.setOpenLinks(True)
         self.log_output.anchorClicked.connect(QDesktopServices.openUrl)
 
+        # Initialisation du chemin de base du volume externe
+        self._external_volume_base_path = Path.home() / "SynchroDestination"
+        # Initialisation du paramètre max_cached_versions
+        self._max_cached_versions = 2 # Valeur par défaut avant chargement depuis config
+
+        # --- DÉPLACÉ ICI : Initialisation de max_cached_versions_input avant son utilisation ---
+        self.max_cached_versions_input = QLineEdit(str(self._max_cached_versions)) # Initialisation avec la valeur par défaut
+        self.max_cached_versions_input.setFixedWidth(50)
+        self.max_cached_versions_input.setAlignment(Qt.AlignCenter)
+        self.max_cached_versions_input.setValidator(QIntValidator(0, 99, self)) # De 0 à 99 versions
+
+
+        # --- Chargement des textes et langue par défaut ---
+        self.texts = self._load_texts()
+        self.current_lang = "fr" # Langue par défaut
+        
         # AJOUT : Message de log de test très tôt pour vérifier l'écriture dans app.log
-        self.log_message("Frontend: Initialisation de l'application...", is_error=False)
+        self.log_message("app_init", is_formatted_key=True)
 
 
-        self.setWindowTitle("Synchro Qt Made - Sauvegarde/Synchronisation")
+        self.setWindowTitle(self.texts[self.current_lang]["app_title"])
         self.setGeometry(100, 100, 1000, 800)
 
         # ---------------------------------------------
@@ -293,23 +334,20 @@ class MainWindow(QMainWindow):
         self.main_layout.setContentsMargins(20, 20, 20, 20)
         
         # Les boutons de log sont aussi initialisés ici pour être liés au log_output
-        self.clear_log_button = QPushButton("Clear Log")
+        self.clear_log_button = QPushButton(self.texts[self.current_lang]["clear_log_button"])
         self.clear_log_button.setObjectName("darkBlueButton")
         self.clear_log_button.clicked.connect(self.log_output.clear)
 
-        self.copy_log_button = QPushButton("Copie Log")
+        self.copy_log_button = QPushButton(self.texts[self.current_lang]["copy_log_button"])
         self.copy_log_button.setObjectName("darkBlueButton")
         self.copy_log_button.clicked.connect(self.copy_log_to_clipboard)
 
-        # Initialisation du chemin de base du volume externe (peut maintenant logger)
-        self._external_volume_base_path = Path.home() / "SynchroDestination"
-        # Initialisation du paramètre max_cached_versions
-        self._max_cached_versions = 2 # Valeur par défaut avant chargement depuis config
+        self.load_external_volume_base_path() # Charge les valeurs réelles depuis volume_config.json
 
         # ---------------------------------------------
         # Ligne 0: Titre principal
         # ---------------------------------------------
-        self.title_label = QLabel("Sauvegarde / Synchronisation")
+        self.title_label = QLabel(self.texts[self.current_lang]["app_title"])
         self.title_label.setAlignment(Qt.AlignCenter)
         # Assurez-vous que le style du titre est appliqué ici, après sa création
         if hasattr(self, '_main_title_style_string') and self._main_title_style_string:
@@ -319,7 +357,7 @@ class MainWindow(QMainWindow):
         # ---------------------------------------------
         # Ligne 1: Affichage du chemin de destination sous le titre
         # ---------------------------------------------
-        self.destination_display_label = QLabel("Destination: Non définie") # Valeur par défaut
+        self.destination_display_label = QLabel(self.texts[self.current_lang]["destination_label_default"]) # Valeur par défaut
         self.destination_display_label.setAlignment(Qt.AlignCenter)
         # AJOUT : Assigner un objectName pour pouvoir cibler le style via gui_config.json
         self.destination_display_label.setObjectName("destinationPathLabel")
@@ -335,22 +373,22 @@ class MainWindow(QMainWindow):
 
         # Ligne 2: Source
         self.source_input = QLineEdit(str(Path.home()))
-        self.source_browse_button = QPushButton("Parcourir...")
+        self.source_browse_button = QPushButton(self.texts[self.current_lang]["browse_button"])
         self.source_browse_button.clicked.connect(self.browse_source)
         self.source_browse_button.setObjectName("darkBlueButton")
         source_h_layout = QHBoxLayout()
         source_h_layout.addWidget(self.source_input)
         source_h_layout.addWidget(self.source_browse_button)
-        self.config_form_layout.addRow("Source:", source_h_layout)
+        self.config_form_layout.addRow(self.texts[self.current_lang]["source_label"], source_h_layout)
         
         self.source_input.textChanged.connect(self.update_destination_path)
 
         # Ligne 3: Destination (champ non éditable, sans bouton)
         self.destination_input = QLineEdit()
         self.destination_input.setReadOnly(True) # Reste non éditable
-        self.destination_input.setToolTip("Le chemin de destination est généré automatiquement (Volume Externe + Nom du Répertoire Source).")
+        self.destination_input.setToolTip(self.texts[self.current_lang]["destination_tooltip"])
         # Le bouton "Ouvrir Volume..." est supprimé
-        self.config_form_layout.addRow("Destination:", self.destination_input)
+        self.config_form_layout.addRow(self.texts[self.current_lang]["destination_label"], self.destination_input)
 
         # Ligne 4: Fréquence de synchro
         self.frequency_input = QLineEdit("1")
@@ -370,24 +408,18 @@ class MainWindow(QMainWindow):
         freq_h_layout = QHBoxLayout()
         freq_h_layout.addWidget(self.frequency_input)
         freq_h_layout.addWidget(self.frequency_slider)
-        self.config_form_layout.addRow("Fréquence (heures):", freq_h_layout)
+        self.config_form_layout.addRow(self.texts[self.current_lang]["frequency_label"], freq_h_layout)
 
         # Ligne 5: Blacklist fichiers
         self.blacklist_files_input = QLineEdit(".tmp;.log;.bak")
-        self.config_form_layout.addRow("Blacklist Fichiers:", self.blacklist_files_input)
+        self.config_form_layout.addRow(self.texts[self.current_lang]["blacklist_files_label"], self.blacklist_files_input)
 
         # Ligne 6: Blacklist répertoires
         self.blacklist_dirs_input = QLineEdit(".git;.cache;node_modules")
-        self.config_form_layout.addRow("Blacklist Répertoires:", self.blacklist_dirs_input)
+        self.config_form_layout.addRow(self.texts[self.current_lang]["blacklist_dirs_label"], self.blacklist_dirs_input)
 
-        # Ligne 7: Max versions en cache
-        # L'initialisation de self._max_cached_versions doit être faite avant load_external_volume_base_path()
-        # et le texte du QLineEdit sera défini par load_external_volume_base_path()
-        self.max_cached_versions_input = QLineEdit(str(self._max_cached_versions)) # Initialisation avec la valeur par défaut
-        self.max_cached_versions_input.setFixedWidth(50)
-        self.max_cached_versions_input.setAlignment(Qt.AlignCenter)
-        self.max_cached_versions_input.setValidator(QIntValidator(0, 99, self)) # De 0 à 99 versions
-        self.config_form_layout.addRow("Max Versions en Cache:", self.max_cached_versions_input)
+        # Ligne 7: Max versions en cache (maintenant initialisé plus tôt)
+        self.config_form_layout.addRow(self.texts[self.current_lang]["max_cached_versions_label"], self.max_cached_versions_input)
 
         self.main_layout.addLayout(self.config_form_layout)
 
@@ -395,15 +427,15 @@ class MainWindow(QMainWindow):
         # Ligne 8: Boutons de configuration (Charger/Sauvegarder/Détruire) - Répartis
         # ---------------------------------------------
         self.config_buttons_layout = QHBoxLayout()
-        self.load_config_button = QPushButton("Charger Configuration")
+        self.load_config_button = QPushButton(self.texts[self.current_lang]["load_config_button"])
         self.load_config_button.setObjectName("darkBlueButton")
         self.load_config_button.clicked.connect(self.load_configuration)
 
-        self.save_config_button = QPushButton("Sauvegarder Configuration")
+        self.save_config_button = QPushButton(self.texts[self.current_lang]["save_config_button"])
         self.save_config_button.setObjectName("darkBlueButton")
         self.save_config_button.clicked.connect(self.save_configuration)
         
-        self.delete_config_button = QPushButton("Détruire Configuration")
+        self.delete_config_button = QPushButton(self.texts[self.current_lang]["delete_config_button"])
         self.delete_config_button.setObjectName("stopButton")
         self.delete_config_button.clicked.connect(self.delete_configuration)
 
@@ -429,15 +461,15 @@ class MainWindow(QMainWindow):
         # Ligne 10: Boutons d'action (Start/Stop/Synthèse) - Répartis
         # ---------------------------------------------
         self.action_buttons_layout = QHBoxLayout()
-        self.start_button = QPushButton("Start")
+        self.start_button = QPushButton(self.texts[self.current_lang]["start_button"])
         self.start_button.setObjectName("startButtonGreen")
         self.start_button.clicked.connect(self.start_sync_process)
 
-        self.stop_button = QPushButton("Stop")
+        self.stop_button = QPushButton(self.texts[self.current_lang]["stop_button"])
         self.stop_button.setObjectName("stopButton")
         self.stop_button.clicked.connect(self.stop_sync_process)
 
-        self.synthesis_button = QPushButton("Synthèse")
+        self.synthesis_button = QPushButton(self.texts[self.current_lang]["synthesis_button"])
         self.synthesis_button.setObjectName("darkBlueButton")
         self.synthesis_button.clicked.connect(self.get_synthesis)
 
@@ -472,11 +504,25 @@ class MainWindow(QMainWindow):
         self.log_buttons_layout.addStretch(1)
         self.main_layout.addLayout(self.log_buttons_layout)
 
+        # --- AJOUT: Sélecteur de langue ---
+        self.language_selector_layout = QHBoxLayout()
+        self.language_label = QLabel(self.texts[self.current_lang]["language_label"])
+        self.language_combo = QComboBox()
+        self.language_combo.addItem(self.texts["fr"]["lang_fr"], "fr")
+        self.language_combo.addItem(self.texts["en"]["lang_en"], "en")
+        # self.language_combo.setCurrentIndex(self.language_combo.findData(self.current_lang)) # <-- Ligne supprimée
+        self.language_combo.currentIndexChanged.connect(self.change_language)
+
+        self.language_selector_layout.addStretch(1)
+        self.language_selector_layout.addWidget(self.language_label)
+        self.language_selector_layout.addWidget(self.language_combo)
+        self.main_layout.addLayout(self.language_selector_layout)
+
         # ---------------------------------------------
         # Ligne 13: Bouton Quitter
         # ---------------------------------------------
         self.quit_button_layout = QHBoxLayout()
-        self.quit_button = QPushButton("Quitter")
+        self.quit_button = QPushButton(self.texts[self.current_lang]["quit_button"])
         self.quit_button.setObjectName("stopButton")
         self.quit_button.clicked.connect(self.close)
         
@@ -498,15 +544,108 @@ class MainWindow(QMainWindow):
         # Mise à jour initiale du chemin de destination pour afficher la valeur dès le démarrage
         self.update_destination_path(self.source_input.text())
         self.frequency_input.textChanged.connect(self.update_slider_from_input)
-        self.log_message(f"Application démarrée. Fichier de logs backend : {APP_LOG_FILE}", is_error=False)
+        self.log_message("app_started", is_formatted_key=True, file_path=str(APP_LOG_FILE))
 
         # --- AJOUT: Configuration du QTimer pour la vérification du statut ---
         self.status_timer = QTimer(self)
         self.status_timer.setInterval(2000)  # Vérifie toutes les 2 secondes (2000 ms)
         self.status_timer.timeout.connect(self.check_sync_status)
+
+        # --- AJOUT: Configuration du QTimer pour le nettoyage des logs du frontend ---
+        self.frontend_log_cleanup_timer = QTimer(self)
+        self.frontend_log_cleanup_timer.setInterval(24 * 60 * 60 * 1000) # Toutes les 24 heures en ms
+        self.frontend_log_cleanup_timer.timeout.connect(self._clean_frontend_log)
+        self.frontend_log_cleanup_timer.start()
+        self._clean_frontend_log() # Exécuter un nettoyage initial au démarrage
         
-        # Le timer sera démarré dans check_sync_status si une tâche est trouvée en cours pour la config actuelle.
+        # Le timer de statut sera démarré dans check_sync_status si une tâche est trouvée en cours pour la config actuelle.
         # Pas d'appel initial à check_sync_status ici, car c'est le chargement de config qui le déclenchera.
+
+        # --- APPEL FINAL : Mettre à jour tous les textes de l'UI après que tout soit initialisé ---
+        self.update_ui_texts() # <-- Ligne ajoutée ici
+
+    def _load_texts(self):
+        """Charge les textes traduits depuis le fichier JSON."""
+        try:
+            with open(TEXTS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"Erreur: Fichier de textes non trouvé: {TEXTS_FILE}. L'application utilisera des textes par défaut/anglais.")
+            return {
+                "fr": {"app_title": "Synchro Qt Made", "start_button": "Démarrer", "log_app_init": "Initialisation..."},
+                "en": {"app_title": "Synchro Qt Made", "start_button": "Start", "log_app_init": "Initializing..."}
+            }
+        except json.JSONDecodeError as e:
+            print(f"Erreur: Fichier de textes JSON invalide: {e}. L'application utilisera des textes par défaut/anglais.")
+            return {
+                "fr": {"app_title": "Synchro Qt Made", "start_button": "Démarrer", "log_app_init": "Initialisation..."},
+                "en": {"app_title": "Synchro Qt Made", "start_button": "Start", "log_app_init": "Initializing..."}
+            }
+
+    def change_language(self, index):
+        """Change la langue de l'interface utilisateur."""
+        self.current_lang = self.language_combo.itemData(index)
+        self.update_ui_texts()
+        # Re-log le message de démarrage dans la nouvelle langue
+        self.log_message("app_started", is_formatted_key=True, file_path=str(APP_LOG_FILE))
+
+    def update_ui_texts(self):
+        """Met à jour tous les textes de l'interface utilisateur en fonction de la langue actuelle."""
+        texts = self.texts.get(self.current_lang, self.texts["en"]) # Fallback to English
+
+        self.setWindowTitle(texts["app_title"])
+        self.title_label.setText(texts["app_title"])
+        self.destination_display_label.setText(texts["destination_label_default"])
+        self.source_browse_button.setText(texts["browse_button"])
+        
+        # Mettre à jour les labels des QFormLayout
+        # Il faut accéder au QLabel qui est le parent du champ ou à la méthode labelForField
+        # La méthode labelForField est plus robuste si le layout est bien géré
+        # Vérification ajoutée pour s'assurer que labelForField retourne un objet valide
+        label_source = self.config_form_layout.labelForField(self.source_input.parent())
+        if label_source:
+            label_source.setText(texts["source_label"])
+        
+        label_destination = self.config_form_layout.labelForField(self.destination_input)
+        if label_destination:
+            label_destination.setText(texts["destination_label"])
+        self.destination_input.setToolTip(texts["destination_tooltip"])
+        
+        label_frequency = self.config_form_layout.labelForField(self.frequency_input.parent())
+        if label_frequency:
+            label_frequency.setText(texts["frequency_label"])
+        
+        label_blacklist_files = self.config_form_layout.labelForField(self.blacklist_files_input)
+        if label_blacklist_files:
+            label_blacklist_files.setText(texts["blacklist_files_label"])
+        
+        label_blacklist_dirs = self.config_form_layout.labelForField(self.blacklist_dirs_input)
+        if label_blacklist_dirs:
+            label_blacklist_dirs.setText(texts["blacklist_dirs_label"])
+        
+        label_max_cached_versions = self.config_form_layout.labelForField(self.max_cached_versions_input)
+        if label_max_cached_versions:
+            label_max_cached_versions.setText(texts["max_cached_versions_label"])
+        
+        self.load_config_button.setText(texts["load_config_button"])
+        self.save_config_button.setText(texts["save_config_button"])
+        self.delete_config_button.setText(texts["delete_config_button"])
+        self.start_button.setText(texts["start_button"])
+        self.stop_button.setText(texts["stop_button"])
+        self.synthesis_button.setText(texts["synthesis_button"])
+        self.clear_log_button.setText(texts["clear_log_button"])
+        self.copy_log_button.setText(texts["copy_log_button"])
+        self.quit_button.setText(texts["quit_button"])
+        self.language_label.setText(texts["language_label"])
+        
+        # Mettre à jour les textes du QComboBox sans changer la sélection
+        current_index = self.language_combo.currentIndex()
+        self.language_combo.setItemText(0, self.texts["fr"]["lang_fr"])
+        self.language_combo.setItemText(1, self.texts["en"]["lang_en"])
+        self.language_combo.setCurrentIndex(current_index) # Restaurer la sélection
+
+        # Mise à jour de l'état du bouton Start/Stop pour refléter la langue
+        self.update_start_button_state(self.is_sync_running)
 
     def apply_gui_styles(self):
         """Charge les styles depuis gui_config.json et les applique à l'application."""
@@ -609,6 +748,23 @@ class MainWindow(QMainWindow):
 
     # --- Méthodes utilitaires et de gestion d'UI ---
 
+    def _clean_frontend_log(self):
+        """
+        Nettoie le fichier de log du frontend (app.log) en le vidant s'il est plus ancien qu'une semaine.
+        """
+        max_age_days = 7
+        if APP_LOG_FILE.exists():
+            cutoff_time = datetime.datetime.now() - datetime.timedelta(days=max_age_days)
+            try:
+                file_mod_time = datetime.datetime.fromtimestamp(APP_LOG_FILE.stat().st_mtime)
+                if file_mod_time < cutoff_time:
+                    with open(APP_LOG_FILE, 'w', encoding='utf-8') as f:
+                        f.truncate(0) # Vide le contenu du fichier
+                    self.log_message("Contenu du log principal du frontend vidé car trop ancien.", is_error=False, is_formatted_key=False)
+            except Exception as e:
+                self.log_message(f"Erreur lors du nettoyage du log principal du frontend {APP_LOG_FILE}: {e}", is_error=True, error_code="LOG001", is_formatted_key=False)
+
+
     def update_slider_from_input(self):
         """Met à jour le slider de fréquence en fonction de la valeur saisie dans l'input."""
         text = self.frequency_input.text()
@@ -625,26 +781,49 @@ class MainWindow(QMainWindow):
                 elif value > max_val:
                     self.frequency_input.setText(str(max_val))
 
-    def log_message(self, message: str, is_error: bool = False, error_code: str = None):
+    def log_message(self, message_key: str, is_error: bool = False, error_code: str = None, **kwargs):
         """
-        Ajoute un message à la zone de log de l'interface.
-        Gère aussi l'affichage des erreurs avec lien vers le fichier de log.
+        Ajoute un message à la zone de log de l'interface, en utilisant les textes traduits.
+        `message_key`: Clé du message dans le dictionnaire `self.texts[self.current_lang]`.
+        `is_formatted_key`: Si True, `message_key` est une clé de traduction. Sinon, `message_key` est le message brut.
+        `kwargs`: Arguments supplémentaires pour le formatage du message (ex: config_name, error_message).
         """
         # Vérifie si log_output est initialisé avant de tenter de l'utiliser
         if not hasattr(self, 'log_output') or self.log_output is None:
             # Si log_output n'est pas prêt, imprime directement dans la console
-            print(f"[FALLBACK LOG - {'ERREUR' if is_error else 'INFO'}]: {message}")
+            print(f"[FALLBACK LOG - {'ERROR' if is_error else 'INFO'}]: {message_key}")
             return
-            
-        prefix = "<span style='color: #dc3545;'>[ERREUR]</span> " if is_error else "<span style='color: #28a745;'>[INFO]</span> "
+        
+        current_texts = self.texts.get(self.current_lang, self.texts["en"]) # Fallback to English
+
+        # Si is_formatted_key est True, on cherche la clé dans les textes traduits
+        if message_key in current_texts and kwargs.get('is_formatted_key', False):
+            message_template = current_texts[message_key]
+        else:
+            # Sinon, on utilise message_key comme message brut
+            message_template = message_key
+        
+        # Formater le message avec les arguments supplémentaires
+        try:
+            message = message_template.format(**kwargs)
+        except KeyError as e:
+            message = f"ERROR: Missing key for log message formatting: {e}. Original template: '{message_template}'"
+            is_error = True
+            error_code = "LOG002"
+        except Exception as e:
+            message = f"ERROR: Could not format log message '{message_template}': {e}"
+            is_error = True
+            error_code = "LOG003"
+
+
+        prefix = current_texts["log_prefix_error"] if is_error else current_texts["log_prefix_info"]
         
         if is_error and error_code:
-            error_msg = f"{prefix}Erreur N°{error_code}: {message}."
-            # AJOUT : Vérifier si le fichier de log existe avant de créer le lien
+            error_msg = f"{prefix}{current_texts['log_error_code_prefix']}{error_code}: {message}."
             if APP_LOG_FILE.exists():
-                error_msg += f" <a href='file:///{APP_LOG_FILE}' style='color: #4a90d9;'>Consulter le fichier log</a>."
+                error_msg += f" <a href='file:///{APP_LOG_FILE}' style='color: #4a90d9;'>{current_texts['log_consult_file']}</a>."
             else:
-                error_msg += " (Fichier log d'application non trouvé)."
+                error_msg += current_texts['log_file_not_found']
             self.log_output.append(error_msg)
         else:
             self.log_output.append(f"{prefix}{message}")
@@ -662,7 +841,7 @@ class MainWindow(QMainWindow):
         """Copie le contenu de la zone de log dans le presse-papiers."""
         clipboard = QApplication.clipboard()
         clipboard.setText(self.log_output.toPlainText())
-        self.log_message("Contenu du log copié dans le presse-papiers.")
+        self.log_message("log_clipboard_copied", is_formatted_key=True)
 
     def create_app_directories(self):
         """
@@ -687,7 +866,6 @@ class MainWindow(QMainWindow):
             # Ici, nous ne pouvons pas utiliser log_message avec le lien si le fichier n'existe pas
             # et que la création a échoué. On loguera directement dans la console.
             print(f"CRITICAL ERROR: Failed to create application directories or app.log file: {e}")
-            # Si cette erreur se produit, log_message ne pourra probablement pas non plus écrire dans app.log
             # self.log_message(f"Erreur critique lors de la création des répertoires de l'application ou du fichier log : {e}", is_error=True, error_code="FS001")
 
 
@@ -699,6 +877,8 @@ class MainWindow(QMainWindow):
         self._external_volume_base_path = Path.home() / "SynchroDestination"
         # self._max_cached_versions est déjà initialisé dans __init__
 
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
+
         if VOLUME_CONFIG_FILE.exists():
             try:
                 with open(VOLUME_CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -708,24 +888,24 @@ class MainWindow(QMainWindow):
                     base_path = config.get("external_volume_base_path")
                     if base_path and Path(base_path).is_dir():
                         self._external_volume_base_path = Path(base_path)
-                        self.log_message(f"Chemin de base du volume externe chargé depuis {VOLUME_CONFIG_FILE}: {self._external_volume_base_path}")
+                        self.log_message("log_external_volume_loaded", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE), path=str(self._external_volume_base_path))
                     else:
-                        self.log_message(f"Chemin de base du volume externe invalide ou non existant dans {VOLUME_CONFIG_FILE}. Utilisation par défaut.", is_error=True, error_code="CFG008")
+                        self.log_message("log_external_volume_invalid", is_error=True, error_code="CFG008", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE))
                     
                     # Charger le paramètre max_cached_versions
                     max_versions = config.get("max_cached_versions")
                     if isinstance(max_versions, int) and max_versions >= 0:
                         self._max_cached_versions = max_versions
-                        self.log_message(f"Max Versions en Cache chargé depuis {VOLUME_CONFIG_FILE}: {self._max_cached_versions}")
+                        self.log_message("log_max_versions_loaded", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE), count=self._max_cached_versions)
                     else:
-                        self.log_message(f"Valeur 'max_cached_versions' invalide ou non trouvée dans {VOLUME_CONFIG_FILE}. Utilisation par défaut ({self._max_cached_versions}).", is_error=True, error_code="CFG012")
+                        self.log_message("log_max_versions_invalid", is_error=True, error_code="CFG012", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE), default_value=self._max_cached_versions)
                         
             except json.JSONDecodeError as e:
-                self.log_message(f"Erreur de lecture de {VOLUME_CONFIG_FILE} (JSON invalide): {e}", is_error=True, error_code="CFG009")
+                self.log_message("log_external_volume_json_error", is_error=True, error_code="CFG009", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE), error_message=str(e))
             except Exception as e:
-                self.log_message(f"Erreur inattendue lors du chargement de {VOLUME_CONFIG_FILE}: {e}", is_error=True, error_code="CFG010")
+                self.log_message("log_external_volume_unexpected_error", is_error=True, error_code="CFG010", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE), error_message=str(e))
         else:
-            self.log_message(f"Fichier {VOLUME_CONFIG_FILE} non trouvé. Chemin de base du volume externe et Max Versions en Cache par défaut appliqués.", is_error=True, error_code="CFG011")
+            self.log_message("log_external_volume_not_found", is_error=True, error_code="CFG011", is_formatted_key=True, file_path=str(VOLUME_CONFIG_FILE))
 
         # Mettre à jour le champ de l'UI avec la valeur chargée ou par défaut
         self.max_cached_versions_input.setText(str(self._max_cached_versions))
@@ -736,24 +916,25 @@ class MainWindow(QMainWindow):
         Met à jour le champ de destination en fonction du chemin source sélectionné
         et du chemin de base du volume externe.
         """
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         source_path = Path(source_path_str)
         if source_path.is_dir():
             destination_dir_name = source_path.name
             final_destination_path = self._external_volume_base_path / destination_dir_name
             self.destination_input.setText(str(final_destination_path))
-            self.destination_display_label.setText(f"Destination: {final_destination_path}") # Mise à jour du label
+            self.destination_display_label.setText(f"{current_texts['destination_label']}: {final_destination_path}") # Mise à jour du label
         else:
             # Si le chemin source n'est pas un répertoire valide (ex: vide ou fichier),
             # on vide le champ destination pour indiquer qu'il n'y a pas de destination calculable.
             self.destination_input.setText("")
-            self.destination_display_label.setText("Destination: Non définie") # Mise à jour du label
+            self.destination_display_label.setText(current_texts["destination_label_default"]) # Mise à jour du label
 
 
     # --- Méthodes de sélection de fichiers/répertoires ---
 
     def browse_source(self):
         """Ouvre un dialogue pour sélectionner le répertoire source."""
-        directory = QFileDialog.getExistingDirectory(self, "Sélectionner le répertoire source", str(self.source_input.text()))
+        directory = QFileDialog.getExistingDirectory(self, self.texts[self.current_lang]["source_label"], str(self.source_input.text()))
         if directory:
             self.source_input.setText(directory)
 
@@ -778,8 +959,9 @@ class MainWindow(QMainWindow):
 
     def load_configuration(self):
         """Charger une configuration depuis un fichier JSON."""
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         config_file_path, _ = QFileDialog.getOpenFileName(
-            self, "Charger une configuration", str(CONFIGS_DIR), "JSON Files (*.json)"
+            self, current_texts["load_config_button"], str(CONFIGS_DIR), "JSON Files (*.json)"
         )
         if config_file_path:
             try:
@@ -800,18 +982,19 @@ class MainWindow(QMainWindow):
                 max_versions_val = config_data.get("max_cached_versions", self._max_cached_versions)
                 self.max_cached_versions_input.setText(str(max_versions_val))
 
-                self.log_message(f"Configuration '{Path(config_file_path).stem}' chargée avec succès.")
+                self.log_message("log_config_loaded", is_formatted_key=True, config_name=Path(config_file_path).stem)
                 
                 # --- NOUVEAU : Vérifier l'état de la synchro pour la config chargée ---
                 self.check_sync_status() 
 
             except Exception as e:
-                self.log_message(f"Erreur lors du chargement de la configuration: {e}", is_error=True, error_code="CFG001")
+                self.log_message("log_config_load_error", is_error=True, error_code="CFG001", is_formatted_key=True, error_message=str(e))
 
     def load_last_used_configuration(self):
         """
         Charge la dernière configuration utilisée (ici, "BacASable.json") au démarrage.
         """
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         config_name_to_load = "BacASable" # Nom de la config à charger par défaut
         config_path = CONFIGS_DIR / f"{config_name_to_load}.json"
 
@@ -827,47 +1010,50 @@ class MainWindow(QMainWindow):
                 # Charger la valeur de max_cached_versions
                 self.max_cached_versions_input.setText(str(config_data.get("max_cached_versions", self._max_cached_versions)))
                 
-                self.log_message(f"Configuration '{config_name_to_load}' chargée au démarrage.")
+                self.log_message("log_config_loaded", is_formatted_key=True, config_name=config_name_to_load)
             except Exception as e:
-                self.log_message(f"Erreur lors du chargement de la configuration '{config_name_to_load}' au démarrage: {e}", is_error=True, error_code="CFG005")
+                self.log_message("log_config_load_error", is_error=True, error_code="CFG005", is_formatted_key=True, config_name=config_name_to_load, error_message=str(e))
         else:
-            self.log_message(f"Configuration '{config_name_to_load}.json' non trouvée au démarrage. Utilisation des valeurs par défaut.", is_error=False)
+            self.log_message("log_config_not_found", is_error=False, is_formatted_key=True, config_name=f"'{config_name_to_load}.json'")
 
 
     def save_configuration(self):
         """Sauvegarder la configuration actuelle dans un fichier JSON."""
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         config_data = self.get_current_config_data()
         config_name = config_data.get("name", "nouvelle_configuration")
 
         config_file_path, _ = QFileDialog.getSaveFileName(
-            self, "Sauvegarder la configuration", str(CONFIGS_DIR / f"{config_name}.json"), "JSON Files (*.json)"
+            self, current_texts["save_config_button"], str(CONFIGS_DIR / f"{config_name}.json"), "JSON Files (*.json)"
         )
 
         if config_file_path:
             try:
                 with open(config_file_path, 'w', encoding='utf-8') as f:
                     json.dump(config_data, f, indent=4, ensure_ascii=False)
-                self.log_message(f"Configuration sauvegardée vers : {config_file_path}")
+                self.log_message("log_config_saved", is_formatted_key=True, file_path=config_file_path)
             except Exception as e:
-                self.log_message(f"Erreur lors de la sauvegarde de la configuration: {e}", is_error=True, error_code="CFG002")
+                self.log_message("log_config_save_error", is_error=True, error_code="CFG002", is_formatted_key=True, error_message=str(e))
 
     def delete_configuration(self):
         """Supprimer une configuration existante."""
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         config_file_path, _ = QFileDialog.getOpenFileName(
-            self, "Supprimer une configuration", str(CONFIGS_DIR), "JSON Files (*.json)"
+            self, current_texts["delete_config_button"], str(CONFIGS_DIR), "JSON Files (*.json)"
         )
         if config_file_path:
-            reply = QMessageBox.question(self, 'Confirmation de suppression',
-                                         f"Êtes-vous sûr de vouloir supprimer la configuration '{Path(config_file_path).stem}' ?",
+            config_name_to_delete = Path(config_file_path).stem
+            reply = QMessageBox.question(self, current_texts['confirm_delete_title'],
+                                         current_texts['confirm_delete_message'].format(config_name=config_name_to_delete),
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
                 try:
                     os.remove(config_file_path)
-                    self.log_message(f"Configuration '{Path(config_file_path).stem}' supprimée avec succès.")
+                    self.log_message("log_config_deleted", is_formatted_key=True, config_name=config_name_to_delete)
                 except FileNotFoundError:
-                    self.log_message(f"Erreur: Le fichier de configuration '{Path(config_file_path).stem}' n'existe pas.", is_error=True, error_code="CFG003")
+                    self.log_message("log_config_not_found", is_error=True, error_code="CFG003", is_formatted_key=True, config_name=config_name_to_delete)
                 except Exception as e:
-                    self.log_message(f"Erreur lors de la suppression de la configuration: {e}", is_error=True, error_code="CFG004")
+                    self.log_message("log_config_delete_error", is_error=True, error_code="CFG004", is_formatted_key=True, error_message=str(e))
 
     # --- Méthodes de communication avec le Backend ---
 
@@ -876,33 +1062,33 @@ class MainWindow(QMainWindow):
         Met à jour l'état visuel du bouton Start et la barre de progression.
         final_status: 'completed', 'stopped', 'error' si la tâche vient de se terminer.
         """
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         self.is_sync_running = is_running
         if is_running:
             self.start_button.setObjectName("startButtonRed")
-            self.start_button.setText("En Cours...")
+            self.start_button.setText(current_texts["start_button"]) # Texte "En Cours..."
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
-            self.progress_bar.setFormat("Synchronisation en cours: %p%") # Réinitialise le format
-            # self.log_message("Synchronisation démarrée.", is_error=False) # Logué déjà par start_sync_process
+            self.progress_bar.setFormat(current_texts["log_sync_in_progress"].format(progress=0)) # Réinitialise le format
         else:
             self.start_button.setObjectName("startButtonGreen")
-            self.start_button.setText("Start")
+            self.start_button.setText(current_texts["start_button"])
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             
             if final_status:
                 if final_status == "completed":
                     self.progress_bar.setValue(100)
-                    self.progress_bar.setFormat("Synchronisation terminée")
-                    self.log_message("Synchronisation terminée.", is_error=False)
+                    self.progress_bar.setFormat(current_texts["log_sync_completed"])
+                    self.log_message("log_sync_completed", is_formatted_key=True)
                 elif final_status == "stopped":
-                    self.progress_bar.setFormat("Synchronisation arrêtée")
-                    self.log_message("Synchronisation arrêtée.", is_error=False)
+                    self.progress_bar.setFormat(current_texts["log_sync_stopped"])
+                    self.log_message("log_sync_stopped", is_formatted_key=True)
                 elif final_status == "error":
-                    self.progress_bar.setFormat("Erreur de synchronisation")
-                    self.log_message("Erreur de synchronisation.", is_error=True)
+                    self.progress_bar.setFormat(current_texts["log_sync_error"])
+                    self.log_message("log_sync_error", is_error=True, is_formatted_key=True)
                 
                 # Laisser la barre visible un court instant, puis la cacher
                 QTimer.singleShot(3000, lambda: self.progress_bar.setVisible(False))
@@ -910,7 +1096,7 @@ class MainWindow(QMainWindow):
                 # Si pas de statut final spécifique (ex: juste après le démarrage ou si aucune tâche n'est active)
                 self.progress_bar.setVisible(False)
                 self.progress_bar.setValue(0) # Assurez-vous qu'elle est à zéro quand cachée
-                self.progress_bar.setFormat("Synchronisation inactive") # Texte par défaut
+                self.progress_bar.setFormat(current_texts["log_sync_inactive"]) # Texte par défaut
 
         # Réappliquer les styles pour s'assurer que le changement d'objet est visible
         self.start_button.setStyleSheet(self.styleSheet())
@@ -918,47 +1104,50 @@ class MainWindow(QMainWindow):
 
     def start_sync_process(self):
         """Démarre le processus de synchronisation via le backend."""
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         config_data = self.get_current_config_data()
-        config_name = config_data.get("name", "nouvelle_configuration")
+        config_name = config_data.get("name", "default_config")
 
         # Vérifier si la destination est définie avant de commencer
         if not config_data["destination"]:
-            self.log_message("Erreur: Le chemin de destination n'est pas défini. Veuillez sélectionner un répertoire source valide.", is_error=True, error_code="VAL001")
+            self.log_message("log_destination_not_defined", is_error=True, error_code="VAL001", is_formatted_key=True)
             return
 
         success_save, msg_save = self.api_client._make_request('PUT', f'/api/configs/{config_name}', config_data)
         if success_save:
-            self.log_message(f"Configuration '{config_name}' envoyée/mise à jour sur le backend. Tentative de démarrage de la synchro...")
+            self.log_message("log_config_sent", is_formatted_key=True, config_name=config_name)
             data, status_code = self.api_client._make_request('POST', f'/api/sync_tasks/start/{config_name}')
             if status_code == 202:
-                self.log_message(f"Demande de démarrage de la synchronisation pour '{config_name}' envoyée. Message: {data.get('message')}")
+                self.log_message("log_start_request_sent", is_formatted_key=True, config_name=config_name, message=data.get('message'))
                 # update_start_button_state(True) sera appelé par check_sync_status qui sera déclenché par le timer
                 self.active_sync_tasks[config_name] = "running" # Ajouter la tâche à la liste de suivi
                 if not self.status_timer.isActive():
                     self.status_timer.start() # Démarrer le timer si ce n'est pas déjà fait
             else:
-                self.log_message(f"Erreur lors du démarrage de la synchronisation: {data.get('error', 'Erreur inconnue')}", is_error=True, error_code="API001")
+                self.log_message("log_start_error", is_error=True, error_code="API001", is_formatted_key=True, error_message=data.get('error', 'Erreur inconnue'))
         else:
-             self.log_message(f"Impossible de sauvegarder la configuration sur le backend: {msg_save.get('error', 'Erreur inconnue') if isinstance(msg_save, dict) else msg_save}", is_error=True, error_code="API002")
+             self.log_message("log_backend_save_error", is_error=True, error_code="API002", is_formatted_key=True, error_message=msg_save.get('error', 'Erreur inconnue') if isinstance(msg_save, dict) else str(msg_save))
 
     def stop_sync_process(self):
         """Arrête le processus de synchronisation sélectionné via le backend."""
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         config_name = Path(self.source_input.text()).name or "default_config"
 
-        self.log_message(f"Demande d'arrêt de la synchronisation pour '{config_name}'...")
+        self.log_message("log_stop_request", is_formatted_key=True, config_name=config_name)
         data, status_code = self.api_client._make_request('POST', f'/api/sync_tasks/stop/{config_name}')
         if status_code == 202:
-            self.log_message(f"Signal d'arrêt envoyé pour '{config_name}'. Le backend attendra la fin du fichier en cours si nécessaire. Message: {data.get('message')}")
+            self.log_message("log_stop_signal_sent", is_formatted_key=True, config_name=config_name, message=data.get('message'))
             # Ne pas appeler update_start_button_state(False) ici. Le timer le fera quand il détectera le changement de statut.
             self.active_sync_tasks[config_name] = "stopping" # Marquer comme "en cours d'arrêt"
         else:
-            self.log_message(f"Erreur lors de l'envoi du signal d'arrêt: {data.get('error', 'Erreur inconnue')}", is_error=True, error_code="API003")
+            self.log_message("log_stop_error", is_error=True, error_code="API003", is_formatted_key=True, error_message=data.get('error', 'Erreur inconnue'))
 
     def check_sync_status(self):
         """
         Vérifie périodiquement le statut de toutes les tâches de synchronisation
         et met à jour l'UI en conséquence, en se concentrant sur la configuration actuelle.
         """
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         current_config_data = self.get_current_config_data()
         current_config_name = current_config_data.get("name", "default_config")
 
@@ -987,7 +1176,7 @@ class MainWindow(QMainWindow):
                     if status == "running":
                         self.update_start_button_state(True) # Met l'UI en état "en cours"
                         self.progress_bar.setValue(backend_task.get('progress', 0))
-                        self.progress_bar.setFormat(f"Synchronisation en cours: {backend_task.get('progress', 0)}%")
+                        self.progress_bar.setFormat(current_texts["log_sync_in_progress"].format(progress=backend_task.get('progress', 0)))
                     elif status in ["completed", "stopped", "error"]:
                         self.update_start_button_state(False, final_status=status)
                         self.get_synthesis(specific_task_name=task_name)
@@ -1000,20 +1189,19 @@ class MainWindow(QMainWindow):
                 # Loguer un message si la synchronisation pour la config actuelle n'est pas active.
                 # Éviter de loguer si le champ source est vide (au démarrage avant chargement de config)
                 if current_config_name != "default_config" and self.source_input.text():
-                    self.log_message(f"Synchronisation pour '{current_config_name}' n'est pas active.", is_error=False)
+                    self.log_message("log_sync_not_active", is_formatted_key=True, config_name=current_config_name)
 
             # Gérer le timer global en fonction de TOUTES les tâches actives sur le backend
             if self.active_sync_tasks and not self.status_timer.isActive():
                 self.status_timer.start()
-                self.log_message("Tâches de synchronisation détectées. Timer de statut démarré.")
+                self.log_message("log_tasks_detected", is_formatted_key=True)
             elif not self.active_sync_tasks and self.status_timer.isActive():
                 self.status_timer.stop()
-                self.log_message("Aucune tâche de synchronisation active. Timer de statut arrêté.")
+                self.log_message("log_no_active_tasks", is_formatted_key=True)
 
         else:
-            self.log_message(f"Erreur lors de la vérification du statut des tâches: {data.get('error', 'Erreur inconnue')} (Statut: {status_code})", is_error=True, error_code="API005")
-            # En cas d'erreur de communication avec le backend, on peut décider de stopper le timer
-            # ou de le laisser continuer pour retenter. Pour l'instant, on le laisse.
+            self.log_message("log_synthesis_error", is_error=True, error_code="API004", is_formatted_key=True, error_message=data.get('error', 'Erreur inconnue'), status_code=status_code)
+            self.log_message("log_backend_check", is_formatted_key=True)
 
 
     def get_synthesis(self, specific_task_name: str = None):
@@ -1021,8 +1209,11 @@ class MainWindow(QMainWindow):
         Récupère et affiche la synthèse des synchronisations.
         Si specific_task_name est fourni, tente d'afficher la synthèse pour cette tâche uniquement.
         """
+        current_texts = self.texts.get(self.current_lang, self.texts["en"])
         self.log_output.clear()
-        self.log_message("Récupération de la synthèse des synchronisations...\n")
+        self.log_message("log_synthesis_retrieval", is_formatted_key=True)
+        self.log_output.append("") # Ligne vide pour espacement
+
         data, status_code = self.api_client.get_sync_tasks()
 
         if status_code == 200:
@@ -1035,14 +1226,14 @@ class MainWindow(QMainWindow):
                             tasks_to_display.append(task)
                             break # Trouvé, on sort
                     if not tasks_to_display:
-                        self.log_message(f"Aucune tâche '{specific_task_name}' trouvée pour la synthèse.")
+                        self.log_message("log_task_not_found", is_formatted_key=True, config_name=specific_task_name)
                         return
 
                 else:
                     # Affiche toutes les tâches si pas de nom spécifique
                     tasks_to_display = data
 
-                self.log_message("--- Synthèse des Tâches de Synchronisation ---")
+                self.log_message("log_synthesis_header", is_formatted_key=True)
                 for task in tasks_to_display:
                     status = task.get('status')
                     config_name = task.get('config_name')
@@ -1060,40 +1251,42 @@ class MainWindow(QMainWindow):
                     files_modified = task.get('files_modified', 'N/A')
                     log_file_name = task.get('log_file_name') # Nom du fichier de log spécifique à cette tâche
 
+                    log_link_text = current_texts["log_synthesis_log_link"]
                     log_link = ""
                     if log_file_name:
                         log_path = TASK_LOG_DIR / log_file_name
                         # Vérifiez si le fichier de log existe réellement avant de créer un lien cliquable
                         if log_path.exists():
-                            log_link = f" (<a href='file:///{log_path}' style='color: #4a90d9;'>Voir le log</a>)"
+                            log_link = f" (<a href='file:///{log_path}' style='color: #4a90d9;'>{log_link_text}</a>)"
                         else:
-                            log_link = " (Log non trouvé)" # Si le backend donne le nom mais le fichier n'existe pas
+                            log_link = current_texts["log_synthesis_log_not_found"]
 
 
                     # Affichage des informations de base pour la tâche
-                    self.log_message(f"--- Tâche: {config_name} (Statut: {status.upper()}) ---")
+                    self.log_message("log_synthesis_task_header", is_formatted_key=True, config_name=config_name, status=status.upper())
                     
                     # Affichage des détails si la tâche est terminée/arrêtée/en erreur
                     if status in ["completed", "stopped", "error"]:
-                        self.log_message(f"  - Durée de l'opération: {duration_str}")
-                        self.log_message(f"  - Répertoires ajoutés: {dirs_added}")
-                        self.log_message(f"  - Fichiers ajoutés: {files_added}")
-                        self.log_message(f"  - Répertoires modifiés: {dirs_modified}")
-                        self.log_message(f"  - Fichiers modifiés: {files_modified}")
-                        self.log_message(f"  - {log_link}") # Ajout du lien vers le log ici
+                        self.log_message("log_synthesis_duration", is_formatted_key=True, duration=duration_str)
+                        self.log_message("log_synthesis_dirs_added", is_formatted_key=True, count=dirs_added)
+                        self.log_message("log_synthesis_files_added", is_formatted_key=True, count=files_added)
+                        self.log_message("log_synthesis_dirs_modified", is_formatted_key=True, count=dirs_modified)
+                        self.log_message("log_synthesis_files_modified", is_formatted_key=True, count=files_modified)
+                        self.log_output.append(f"{current_texts['log_prefix_info']}  - {log_link}") # Ajout du lien vers le log ici
                     elif status == "running":
                         pid_info = f" (PID: {task.get('pid')})" if task.get('pid') else ""
-                        self.log_message(f"  - Statut: <span style='color: #28a745;'>{status.upper()}</span>{pid_info}, Durée actuelle: {duration_str}")
-                        self.log_message(f"  - {log_link}") # Le log peut être utile même pour une tâche en cours
+                        self.log_message("log_synthesis_running_status", is_formatted_key=True, status_upper=status.upper(), pid_info=pid_info, duration=duration_str)
+                        self.log_output.append(f"{current_texts['log_prefix_info']}  - {log_link}") # Le log peut être utile même pour une tâche en cours
                     else:
-                        self.log_message(f"  - Statut: {status.upper()}, Durée: {duration_str}{log_link}")
-                    self.log_message("-" * 40) # Séparateur pour chaque tâche
+                        # Fallback pour les statuts non gérés dans les clés de traduction
+                        self.log_output.append(f"{current_texts['log_prefix_info']}  - Statut: {status.upper()}, Durée: {duration_str}{log_link}")
+                    self.log_output.append("-" * 40) # Séparateur pour chaque tâche
             else:
-                self.log_message("Aucune tâche de synchronisation active ou récemment terminée trouvée.")
+                self.log_message("log_no_tasks_found", is_formatted_key=True)
             
         else:
-            self.log_message(f"Erreur lors de la récupération de la synthèse: {data.get('error', 'Erreur inconnue')} (Statut: {status_code})", is_error=True, error_code="API004")
-            self.log_message("Vérifiez que le backend est lancé et accessible à http://127.0.0.1:7555/")
+            self.log_message("log_synthesis_error", is_error=True, error_code="API004", is_formatted_key=True, error_message=data.get('error', 'Erreur inconnue'), status_code=status_code)
+            self.log_message("log_backend_check", is_formatted_key=True)
 
 
 if __name__ == "__main__":
